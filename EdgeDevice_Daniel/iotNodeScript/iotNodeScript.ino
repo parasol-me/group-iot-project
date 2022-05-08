@@ -1,0 +1,81 @@
+#include "DHT.h"
+#define DHTPIN 2
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+int timerCount = 0;
+int sensorReadFrequencySeconds = 5;
+String delimiter = ", ";
+
+bool readSensors = false;
+
+void setup() {
+  
+  Serial.begin(9600);
+
+  // digital humidity and tempurature
+  dht.begin();
+
+  // ISR setup from Week 6 Task 4 tutorial
+  cli();                      //stop interrupts for till we make the settings
+  /*1. First we reset the control register to make sure we start with everything disabled.*/
+  TCCR1A = 0;                 // Reset entire TCCR1A to 0 
+  TCCR1B = 0;                 // Reset entire TCCR1B to 0
+ 
+  /*2. We set the prescalar to the desired value by changing the CS10 CS12 and CS12 bits. */  
+  TCCR1B |= B00000100;        //Set CS12 to 1 so we get prescalar 256  
+  
+  /*3. We enable compare match mode on register A*/
+  TIMSK1 |= B00000010;        //Set OCIE1A to 1 so we enable compare match A 
+  
+  /*4. Set the value of register A to 31250*/
+  OCR1A = 65535;             //Finally we set compare register A to this value  
+  sei();                     //Enable back the interrupts
+}
+
+void loop() {
+  // read serial from edge device
+  if (Serial.available() > 0) {
+    // Read serial input
+    String input = Serial.readStringUntil('\n');
+    int newSensorReadFrequencySeconds = input.toInt();
+    
+    // set the new frequency
+    sensorReadFrequencySeconds = newSensorReadFrequencySeconds;
+  }
+
+  if (readSensors) {
+    // Read humidity
+    float humidity = dht.readHumidity();
+    
+    // Read temperature as Celsius (the default)
+    float temp = dht.readTemperature();
+
+    // Compute heat index in Celsius (isFahreheit = false)
+    float heatIndex = dht.computeHeatIndex(temp, humidity, false);
+
+    // get ldr voltage from analogue sensor
+    int ldrVoltage = analogRead(A0);
+
+    // send to edge device
+    Serial.println(ldrVoltage + delimiter + humidity + delimiter + temp + delimiter + heatIndex);
+
+    readSensors = false;
+  }
+}
+
+// 1000ms ISR
+ISR(TIMER1_COMPA_vect){
+  TCNT1  = 0; //First, set the timer back to 0 so it resets for next interrupt
+
+  // by using a counter we can multiply the delay by {sensorReadFrequencySeconds} which is configurable
+  if (timerCount < (sensorReadFrequencySeconds - 1)) {
+    timerCount++;
+    return;    
+  }
+  // reset counter now that the right delay is reached
+  timerCount = 0;
+
+  // reading temp sensor takes a while so use a flag to execute this in the main loop instead
+  readSensors = true;
+}
