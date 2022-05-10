@@ -1,20 +1,10 @@
-#include "DHT.h"
-#define DHTPIN 2
-#define DHTTYPE DHT11
-DHT dht(DHTPIN, DHTTYPE);
-
 int timerCount = 0;
 int sensorReadFrequencySeconds = 5;
-String delimiter = ", ";
-
 bool readSensors = false;
 
 void setup() {
   
   Serial.begin(9600);
-
-  // digital humidity and tempurature
-  dht.begin();
 
   // ISR setup from Week 6 Task 4 tutorial
   cli();                      //stop interrupts for till we make the settings
@@ -45,20 +35,11 @@ void loop() {
   }
 
   if (readSensors) {
-    // Read humidity
-    float humidity = dht.readHumidity();
-    
-    // Read temperature as Celsius (the default)
-    float temp = dht.readTemperature();
-
-    // Compute heat index in Celsius (isFahreheit = false)
-    float heatIndex = dht.computeHeatIndex(temp, humidity, false);
-
     // get ldr voltage from analogue sensor
     int ldrVoltage = analogRead(A0);
 
     // send to edge device
-    Serial.println(ldrVoltage + delimiter + humidity + delimiter + temp + delimiter + heatIndex);
+    Serial.println(ldrVoltage);
 
     readSensors = false;
   }
@@ -76,6 +57,6 @@ ISR(TIMER1_COMPA_vect){
   // reset counter now that the right delay is reached
   timerCount = 0;
 
-  // reading temp sensor takes a while so use a flag to execute this in the main loop instead
+  // use a flag to read sensor in the main loop instead
   readSensors = true;
 }
