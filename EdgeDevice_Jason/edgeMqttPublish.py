@@ -11,7 +11,6 @@ client = mqtt.Client()
 fan_state = "false"
 #arduino.write(b"1")
 
-
 class AttributeState:
     def __init__(self, fanToggle):
         self.fanToggle = fanToggle
