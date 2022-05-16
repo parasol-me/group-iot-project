@@ -1,4 +1,3 @@
-from typing import cast
 import jsonpickle
 import jsonpickle.unpickler as unpickler
 import jsonpickle.util as util
@@ -8,52 +7,116 @@ import time
 import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
 
-ser = serial.Serial('/dev/ttyS0', 9600)
-client = mqtt.Client()
-
-ldrLowerBoundKey = 'ldrLowerBound'
-ldrLoldrUpdateFrequencySecondsKey = 'ldrUpdateFrequencySeconds'
-
-sharedAttributesKey = 'shared'
+class AttributeState:
+  def __init__(self, ldrLowerBound, ldrUpdateFrequencySeconds):
+    self.ldrLowerBound = ldrLowerBound
+    self.ldrUpdateFrequencySeconds = ldrUpdateFrequencySeconds
 
 class LdrPayload:
   def __init__(self, ldr):
     self.ldr = ldr
 
+ser = serial.Serial('/dev/ttyS0', 9600)
+client = mqtt.Client()
+
+ldrLedFlagPrefix = 'ldrLedFlag:'
+ldrUpdateFrequencySecondsPrefix = 'ldrUpdateFrequencySeconds:'
+
+ldrLowerBoundKey = 'ldrLowerBound'
+ldrUpdateFrequencySecondsKey = 'ldrUpdateFrequencySeconds'
+
+ldrLedStatusKey = 'ldrLedStatus'
+sharedKeysKey = 'sharedKeys'
+sharedAttributesKey = 'shared'
+
+attributeState = AttributeState(150, 5)
+ldrPayload = LdrPayload(0)
+attributeStateProcessUpdate = AttributeState(True, True)
+
 def on_connect(client, userdata, flags, rc):
   print("Connected to to mqtt broker with result code " + str(rc))
+
+  # subscribe to attribute updates
   client.subscribe("v1/devices/me/attributes")
+
+  # get initial attribute values on startup
   client.subscribe('v1/devices/me/attributes/response/+')
-  client.publish('v1/devices/me/attributes/request/1', '{"sharedKeys":"' + ldrLowerBoundKey + ',' + ldrLoldrUpdateFrequencySecondsKey + '"}')
-  client.subscribe("v1/devices/me/1")
+  client.publish('v1/devices/me/attributes/request/1', '{{"{}": "{},{}"}}'.format(sharedKeysKey, ldrLowerBoundKey, ldrUpdateFrequencySecondsKey))
 
 def on_disconnect(client, userdata, rc):
     print("Disconnected from to mqtt broker reason " + str(rc))
 
 def on_message(client, userdata, msg):
-    payload = jsonpickle.decode(msg.payload.decode("utf-8"))
+    attributes = jsonpickle.decode(msg.payload.decode("utf-8"))
+    global attributeState
+    global attributeStateProcessUpdate
+
+    # process attribute updates
     if (msg.topic == "v1/devices/me/attributes"):
-        if ldrLowerBoundKey in payload:
-            print(ldrLowerBoundKey + " updated to " + str(payload[ldrLowerBoundKey]))
-        if ldrLoldrUpdateFrequencySecondsKey in payload:
-            print(ldrLoldrUpdateFrequencySecondsKey + " updated to " + str(payload[ldrLoldrUpdateFrequencySecondsKey]))
+        if ldrLowerBoundKey in attributes:
+            attributeState.ldrLowerBound = int(attributes[ldrLowerBoundKey])
+            print(ldrLowerBoundKey + " updated to " + str(attributes[ldrLowerBoundKey]))
+            attributeStateProcessUpdate.ldrLowerBound = True
+        if ldrUpdateFrequencySecondsKey in attributes:
+            attributeState.ldrUpdateFrequencySeconds = int(attributes[ldrUpdateFrequencySecondsKey])
+            print(ldrUpdateFrequencySecondsKey + " updated to " + str(attributes[ldrUpdateFrequencySecondsKey]))
+            attributeStateProcessUpdate.ldrUpdateFrequencySeconds = True
+
+    # process intial attribute values
     if (msg.topic == "v1/devices/me/attributes/response/1"):
-        attributes = payload[sharedAttributesKey]
+        attributes = attributes[sharedAttributesKey]
+        attributeState.ldrLowerBound = int(attributes[ldrLowerBoundKey])
+        attributeState.ldrUpdateFrequencySeconds = int(attributes[ldrUpdateFrequencySecondsKey])
         print(ldrLowerBoundKey + " initial value is " + str(attributes[ldrLowerBoundKey]))
-        print(ldrLoldrUpdateFrequencySecondsKey + " initial value is " + str(attributes[ldrLoldrUpdateFrequencySecondsKey]))
-    # TODO: set control variable for sending to IoT node via serial
+        print(ldrUpdateFrequencySecondsKey + " initial value is " + str(attributes[ldrUpdateFrequencySecondsKey]))
+        attributeStateProcessUpdate.ldrLowerBound = True
+        attributeStateProcessUpdate.ldrUpdateFrequencySeconds = True
 
 def read_serial():
     while True:
+        global attributeStateProcessUpdate
+        global attributeState
+        global ldrPayload
+        currentLdr = ldrPayload.ldr
+        ldrLowerBound = attributeState.ldrLowerBound
         if (ser.inWaiting() > 0):
             try:
-                line = ser.readline().decode("utf-8").strip()
-                ldrPayload = LdrPayload(line)
+                newLdr = int(ser.readline().decode("utf-8").strip())
+                global writeAttributeUpdates
+                newLdrPayload = LdrPayload(newLdr)
+                
+
+                if (newLdr < ldrLowerBound and currentLdr >= ldrLowerBound):
+                    ser.write("{}{}\n".format(ldrLedFlagPrefix, 1).encode("utf-8"))
+                    client.publish("v1/devices/me/attributes", '{{"{}": {}}}'.format(ldrLedStatusKey, True))
+
+                if (newLdr >= ldrLowerBound and currentLdr < ldrLowerBound):
+                    ser.write("{}{}\n".format(ldrLedFlagPrefix, 0).encode("utf-8"))
+                    client.publish("v1/devices/me/attributes", '{{"{}": {}}}'.format(ldrLedStatusKey, False))
+
+                ldrPayload = newLdrPayload
+
+                # publish ldr sensor data to cloud
                 client.publish("v1/devices/me/telemetry", jsonpickle.encode(ldrPayload, unpicklable=False))
-                print(line)
+                print(newLdr)
             except Exception as e:
                 print(e)
-            
+
+        if (currentLdr < ldrLowerBound and attributeStateProcessUpdate.ldrLowerBound):
+            ser.write("{}{}\n".format(ldrLedFlagPrefix, 1).encode("utf-8"))
+            client.publish("v1/devices/me/attributes", '{{"{}": {}}}'.format(ldrLedStatusKey, True))
+            attributeStateProcessUpdate.ldrLowerBound = False
+
+        if (currentLdr >= ldrLowerBound and attributeStateProcessUpdate.ldrLowerBound):
+            ser.write("{}{}\n".format(ldrLedFlagPrefix, 0).encode("utf-8"))
+            client.publish("v1/devices/me/attributes", '{{"{}": {}}}'.format(ldrLedStatusKey, False))
+            attributeStateProcessUpdate.ldrLowerBound = False
+
+        if (attributeStateProcessUpdate.ldrUpdateFrequencySeconds):
+            ldrUpdateFrequencySeconds = attributeState.ldrUpdateFrequencySeconds
+            ser.write("{}{}\n".format(ldrUpdateFrequencySecondsPrefix, ldrUpdateFrequencySeconds).encode("utf-8"))
+            attributeStateProcessUpdate.ldrUpdateFrequencySeconds = False
+
         time.sleep(0.01)
 
 if __name__ == '__main__':

@@ -1,9 +1,14 @@
+#define LDRLEDPIN 4
+#define LDRPIN A0
 int timerCount = 0;
 int sensorReadFrequencySeconds = 5;
 bool readSensors = false;
 
+const String ldrLedFlagPrefix = "ldrLedFlag:";
+const String ldrUpdateFrequencySecondsPrefix = "ldrUpdateFrequencySeconds:";
+
 void setup() {
-  
+  pinMode(LDRLEDPIN, OUTPUT);
   Serial.begin(9600);
 
   // ISR setup from Week 6 Task 4 tutorial
@@ -24,19 +29,36 @@ void setup() {
 }
 
 void loop() {
-  // read serial from edge device
+  // read serial from edge device if available
   if (Serial.available() > 0) {
+
     // Read serial input
     String input = Serial.readStringUntil('\n');
-    int newSensorReadFrequencySeconds = input.toInt();
-    
-    // set the new frequency
-    sensorReadFrequencySeconds = newSensorReadFrequencySeconds;
+
+    if (input.startsWith(ldrLedFlagPrefix)) {
+      input.replace(ldrLedFlagPrefix, "");
+      int ldrLedFlag = input.toInt();
+
+      // turn on/off lights based on flag
+      if (ldrLedFlag == 1) {
+        digitalWrite(LDRLEDPIN, HIGH);
+      } else if (ldrLedFlag == 0) {
+        digitalWrite(LDRLEDPIN, LOW);
+      }
+    }
+
+    if (input.startsWith(ldrUpdateFrequencySecondsPrefix)) {
+      input.replace(ldrUpdateFrequencySecondsPrefix, "");
+      int newSensorReadFrequencySeconds = input.toInt();
+
+      // set the new frequency
+      sensorReadFrequencySeconds = newSensorReadFrequencySeconds;
+    }
   }
 
   if (readSensors) {
     // get ldr voltage from analogue sensor
-    int ldrVoltage = analogRead(A0);
+    int ldrVoltage = analogRead(LDRPIN);
 
     // send to edge device
     Serial.println(ldrVoltage);
