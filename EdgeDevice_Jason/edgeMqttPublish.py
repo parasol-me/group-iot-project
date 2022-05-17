@@ -9,7 +9,6 @@ THINGSBOARD_HOST = 'mqtt.thingsboard.cloud'
 ACCESS_TOKEN = 'Lwk3HImfyOcrrQxfyD5h'
 client = mqtt.Client()
 fan_state = "false"
-#arduino.write(b"1")
 
 class AttributeState:
     def __init__(self, fanToggle):
@@ -44,12 +43,17 @@ def on_message(client, userdata, msg):
     if (fanToggle == True):
         print("Fan override has been switched on")
         node.write(b"1")
+        fanToggleCheck = 2
+        
     elif (fanToggle == False):
         print ("Fan override is now off")
         node.write(b"2")
+        fanToggleCheck = 2
 
 print("Publishing Data To the Cloud via MQTT")    
 def read_serial():
+    check = ""
+    fanToggleCheck = "1"
     while True:
         if (node.inWaiting() > 0):
             try:
@@ -58,6 +62,18 @@ def read_serial():
                 tempPayload = TempPayload(temperature)
                 client.publish("v1/devices/me/telemetry", jsonpickle.encode(tempPayload, unpicklable=False))        
                 print(temperature)
+                
+                if(temperature >= "24"):
+                    node.write(b"1")
+                    check = "true"
+                    while fanToggleCheck == "1":
+                        print("Temperature is greater than 24deg fan has been switched on")
+                        fanToggleCheck += "1"
+                elif(temperature <"24") and (check =="true"):
+                    node.write(b"2")
+                    print ("Temperature has return to normal levels fan is now off")
+                    check = "false"
+                    fanToggleCheck = "1"
             except Exception as e:
                 print(e)
 
@@ -70,4 +86,3 @@ if __name__ == '__main__':
     client.loop_start()
 
     read_serial()
-
