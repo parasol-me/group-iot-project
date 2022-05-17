@@ -1,14 +1,18 @@
-#define LDRLEDPIN 4
+#define LDR_LED_PIN 4
+#define TEMPERATURE_FAN_PIN 2
 #define LDRPIN A0
 int timerCount = 0;
 int sensorReadFrequencySeconds = 5;
 bool readSensors = false;
 
 const String ldrLedFlagPrefix = "ldrLedFlag:";
+const String temperatureFanFlagPrefix = "temperatureFanFlag:";
 const String ldrUpdateFrequencySecondsPrefix = "ldrUpdateFrequencySeconds:";
 
 void setup() {
-  pinMode(LDRLEDPIN, OUTPUT);
+  pinMode(LDR_LED_PIN, OUTPUT);
+  pinMode(TEMPERATURE_FAN_PIN, OUTPUT);
+
   Serial.begin(9600);
 
   // ISR setup from Week 6 Task 4 tutorial
@@ -28,6 +32,15 @@ void setup() {
   sei();                     //Enable back the interrupts
 }
 
+void writeBinaryFlagToDigitalOutPin(int pin, int value) {
+  // turn on/off based on flag
+  if (value == 1) {
+    digitalWrite(pin, HIGH);
+  } else if (value == 0) {
+    digitalWrite(pin, LOW);
+  }
+}
+
 void loop() {
   // read serial from edge device if available
   if (Serial.available() > 0) {
@@ -39,12 +52,14 @@ void loop() {
       input.replace(ldrLedFlagPrefix, "");
       int ldrLedFlag = input.toInt();
 
-      // turn on/off lights based on flag
-      if (ldrLedFlag == 1) {
-        digitalWrite(LDRLEDPIN, HIGH);
-      } else if (ldrLedFlag == 0) {
-        digitalWrite(LDRLEDPIN, LOW);
-      }
+      writeBinaryFlagToDigitalOutPin(LDR_LED_PIN, ldrLedFlag);
+    }
+
+    if (input.startsWith(temperatureFanFlagPrefix)) {
+      input.replace(temperatureFanFlagPrefix, "");
+      int temperatureFanFlag = input.toInt();
+
+      writeBinaryFlagToDigitalOutPin(TEMPERATURE_FAN_PIN, temperatureFanFlag);
     }
 
     if (input.startsWith(ldrUpdateFrequencySecondsPrefix)) {
