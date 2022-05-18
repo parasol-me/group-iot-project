@@ -9,12 +9,24 @@ THINGSBOARD_HOST = 'mqtt.thingsboard.cloud'
 ACCESS_TOKEN = 'Lwk3HImfyOcrrQxfyD5h'
 client = mqtt.Client()
 fan_state = "false"
+thresholdValue = 24.00
+
+ThresholdKey = 'Threshold'
+
+
+
+#arduino.write(b"1")
+
 
 class AttributeState:
     def __init__(self, fanToggle):
         self.fanToggle = fanToggle
 
 class TempPayload:
+  def __init__(self, temp):
+    self.temp = temp #change self.temp = temp to self.temp = 23(value) to test
+
+class TempThreshold:
   def __init__(self, temp):
     self.temp = temp #change self.temp = temp to self.temp = 23(value) to test
 
@@ -27,29 +39,39 @@ sharedAttributesKey = 'shared'
 attributeState = AttributeState(False)
 fanPayload = TempPayload(0)
 attributeStateProcessUpdate = AttributeState(True)
+sharedAttributesKey = 'shared'
 
 def on_connect(client, userdata, flags, rc):
   print("Connected to to mqtt broker with result code " + str(rc))
-  client.subscribe("v1/devices/me/1")
-  client.subscribe("v1/devices/me/rpc/request/+")
-
+  client.subscribe("v1/devices/me/attributes") #subscribes to 
+  client.subscribe("v1/devices/me/rpc/request/+") #subscribes to the
+  client.subscribe("v1/devices/me/attributes/response/+") #
+  client.publish("v1/devices/me/attributes/request/1", '{{"{}": "{}"}}'.format(sharedKeysKey, ThresholdKey))   
+  client.publish("v1/devices/me/telemetry", jsonpickle.encode(tempThreshold, unpicklable=False))
+  
 def on_disconnect(client, userdata, rc):
     print("Disconnected from to mqtt broker reason " + str(rc))
 
 def on_message(client, userdata, msg):
-#    print ('Topic: ' + msg.topic + '\nMessage: ' + str(msg.payload))
+   # print ('Topic: ' + msg.topic + '\nMessage: ' + str(msg.payload))
+    global thresholdValue
     data = json.loads(msg.payload)
-    fanToggle = (data["params"]) 
+    if(msg.topic == 'v1/devices/me/attributes'):
+        if (ThresholdKey in data):
+            thresholdValue = (data["Threshold"])
+            thresholdValue = float(thresholdValue)
+    data2 = json.loads(msg.payload)
+    fanToggle = (data2["params"])
     if (fanToggle == True):
         print("Fan override has been switched on")
         node.write(b"1")
         fanToggleCheck = 2
-        
     elif (fanToggle == False):
         print ("Fan override is now off")
         node.write(b"2")
         fanToggleCheck = 2
 
+    
 print("Publishing Data To the Cloud via MQTT")    
 def read_serial():
     check = ""
@@ -58,18 +80,20 @@ def read_serial():
         if (node.inWaiting() > 0):
             try:
                 temperature = node.readline().decode("utf-8").strip()
+                temperature = float(temperature)
                 humidity = node.readline().decode("utf-8").strip()
                 tempPayload = TempPayload(temperature)
-                client.publish("v1/devices/me/telemetry", jsonpickle.encode(tempPayload, unpicklable=False))        
-                print(temperature)
-                
-                if(temperature >= "24"):
+                client.publish("v1/devices/me/telemetry", jsonpickle.encode(tempPayload, unpicklable=False))
+                print("Temperature is: " + str(temperature))
+                print("Threshold Value is: " + str(thresholdValue))
+                print("\n")
+                if(temperature >= thresholdValue):
                     node.write(b"1")
                     check = "true"
                     while fanToggleCheck == "1":
-                        print("Temperature is greater than 24deg fan has been switched on")
+                        print("Temperature is greater than " + str(thresholdValue) + " fan has been switched on")
                         fanToggleCheck += "1"
-                elif(temperature <"24") and (check =="true"):
+                elif(temperature < thresholdValue) and (check =="true"):
                     node.write(b"2")
                     print ("Temperature has return to normal levels fan is now off")
                     check = "false"
