@@ -8,14 +8,10 @@ node = serial.Serial(device, 9600)
 THINGSBOARD_HOST = 'mqtt.thingsboard.cloud'
 ACCESS_TOKEN = 'Lwk3HImfyOcrrQxfyD5h'
 client = mqtt.Client()
-fan_state = "false"
+fan_state = False
 thresholdValue = 24.00
 
 ThresholdKey = 'Threshold'
-
-
-
-#arduino.write(b"1")
 
 
 class AttributeState:
@@ -53,27 +49,46 @@ def on_disconnect(client, userdata, rc):
     print("Disconnected from to mqtt broker reason " + str(rc))
 
 def on_message(client, userdata, msg):
-   # print ('Topic: ' + msg.topic + '\nMessage: ' + str(msg.payload))
+    
+    print ('Topic: ' + msg.topic + '\nMessage: ' + str(msg.payload))
     global thresholdValue
+    global fan_state
     data = json.loads(msg.payload)
+    if(msg.topic == 'v1/devices/me/attributes/response/1'):
+        thresholdValue = float(data["shared"]["Threshold"])
+        
+        
+        
     if(msg.topic == 'v1/devices/me/attributes'):
         if (ThresholdKey in data):
-            thresholdValue = (data["Threshold"])
-            thresholdValue = float(thresholdValue)
-    data2 = json.loads(msg.payload)
-    fanToggle = (data2["params"])
-    if (fanToggle == True):
-        print("Fan override has been switched on")
-        node.write(b"1")
-        fanToggleCheck = 2
-    elif (fanToggle == False):
-        print ("Fan override is now off")
-        node.write(b"2")
-        fanToggleCheck = 2
-
+            thresholdValue = float(data["Threshold"])
+    if(msg.topic.startswith("v1/devices/me/rpc/request/")):
+        if(data["method"]=="getValue"):
+            print(data)
+            requestId = msg.topic.replace("v1/devices/me/rpc/request/", "")
+            responseTopic = "v1/devices/me/rpc/response/" + requestId
+            data["params"] = fan_state
+            print(data)
+            var1 = jsonpickle.encode(fan_state, unpicklable=False)
+            print (var1)
+            client.publish(responseTopic, var1)
+            
+        if(data["method"]=="setValue"):
+            fanToggle = (data["params"])
+            print(data)
+            fan_state = fanToggle
+            if (fanToggle == True):
+                print("Fan override has been switched on")
+                node.write(b"1")
+                fanToggleCheck = 2
+            elif (fanToggle == False):
+                print ("Fan override is now off")
+                node.write(b"2")
+                fanToggleCheck = 2
     
 print("Publishing Data To the Cloud via MQTT")    
 def read_serial():
+    global fan_state
     check = ""
     fanToggleCheck = "1"
     while True:
@@ -89,12 +104,14 @@ def read_serial():
                 print("\n")
                 if(temperature >= thresholdValue):
                     node.write(b"1")
+                    fan_state = True
                     check = "true"
                     while fanToggleCheck == "1":
                         print("Temperature is greater than " + str(thresholdValue) + " fan has been switched on")
                         fanToggleCheck += "1"
                 elif(temperature < thresholdValue) and (check =="true"):
                     node.write(b"2")
+                    fan_state = False
                     print ("Temperature has return to normal levels fan is now off")
                     check = "false"
                     fanToggleCheck = "1"
