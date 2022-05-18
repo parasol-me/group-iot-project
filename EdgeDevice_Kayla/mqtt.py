@@ -6,11 +6,44 @@ import serial
 import time
 import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
+import requests, json #for weather app
 
 ser = serial.Serial('/dev/ttyS0', 9600)
 client = mqtt.Client()
 
 lightState = False
+
+#-----------GETTING WEATHER OFF THE INTERNET-----------------------------
+BASE_URL = "https://api.openweathermap.org/data/2.5/weather?" #base URL
+#city Name CITY = "Melbourne"
+CITY = "Melbourne,au" #{city name},{country code}
+#API key API_KEY = "API KEY HERE"
+API_KEY = "5f9c2b1O9dfc3b3a2f8afdf0647e9ce6"
+URL = BASE_URL + "q=" + CITY + "&appid=" + API_KEY
+
+URLTWO = "https://api.openweathermap.org/data/2.5/weather?q=Melbourne,au&appid=5f9c2b1O9dfc3b3a2f8afdf0647e9ce6" #test
+
+
+response = requests.get(URL) #http request
+print(response) #getting error 401, lacks valid authentication credentials
+
+#checking status of code
+if response.status_code == 200:
+    
+    data = response.json() #getting data in json
+    main = data['main'] #getting main dict block
+    temperature = main['temp'] #getting temperature
+    report = data['weather']
+    
+    #show info in shell
+    print(f"{CITY:-^30}") #eg. ----Melbourne-----
+    print(f"Temperature: {temperature}") #eg. Temperature: f means is string literall
+    print(f"Weather Report: {report[0]['description']}") #eg. Weather Report: Windy
+else:
+    print("Error in HTTP request") #print error
+#-----------------------------------------------------
+
+
 
 class SoundPayload:
     def __init__(self, soundDetected):
