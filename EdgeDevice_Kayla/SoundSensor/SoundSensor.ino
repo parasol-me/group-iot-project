@@ -10,7 +10,8 @@ int sensorValue = 0;
 int DigitalState = 0;
 int Threshold = 522;
 
-
+//stuff
+int old;
 
 void setup() {
   //Baud rate
@@ -43,4 +44,9 @@ void loop() {
     Serial.println(DigitalState);
     digitalWrite(redLEDPin, HIGH);
   }
+  else 
+  {
+    digitalWrite(redLEDPin, LOW);
+  }
+
 }
