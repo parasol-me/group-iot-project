@@ -1,18 +1,19 @@
 #define LDR_LED_PIN 4
-#define TEMPERATURE_FAN_PIN 2
-#define LDRPIN A0
+#define LDR_SENSOR_PIN A0
 int timerCount = 0;
 int sensorReadFrequencySeconds = 5;
-bool readSensors = false;
+int ldrLowerBound = 150;
+bool readSensor = false;
+int ldr = 0;
+bool overridePreviousLdrCheck = true;
 
 const String ldrLedFlagPrefix = "ldrLedFlag:";
-const String temperatureFanFlagPrefix = "temperatureFanFlag:";
 const String ldrUpdateFrequencySecondsPrefix = "ldrUpdateFrequencySeconds:";
+const String ldrLowerBoundPrefix = "ldrLowerBound:";
 
 void setup() {
+  // initialise led pin and serial connection
   pinMode(LDR_LED_PIN, OUTPUT);
-  pinMode(TEMPERATURE_FAN_PIN, OUTPUT);
-
   Serial.begin(9600);
 
   // ISR setup from Week 6 Task 4 tutorial
@@ -32,53 +33,77 @@ void setup() {
   sei();                     //Enable back the interrupts
 }
 
-void writeBinaryFlagToDigitalOutPin(int pin, int value) {
+void writeFlagToDigitalOutPinAndPublish(int pin, bool value) {
   // turn on/off based on flag
-  if (value == 1) {
+  if (value) {
     digitalWrite(pin, HIGH);
-  } else if (value == 0) {
+  } else {
     digitalWrite(pin, LOW);
   }
+
+  // publish changes to edge server via serial
+  Serial.println(ldrLedFlagPrefix + value);
 }
 
-void loop() {
+void evaluateLdrAndPublish() {
+  // get ldr from analogue sensor
+  int newLdr = analogRead(LDR_SENSOR_PIN);
+
+  // turn led on/off dependant on lower bound and previous value to avoid wasted serial communication
+  // overridePreviousLdrCheck can force an update, useful for startup and lower bound changes
+  if (newLdr < ldrLowerBound && (overridePreviousLdrCheck || ldr >= ldrLowerBound)) {
+    writeFlagToDigitalOutPinAndPublish(LDR_LED_PIN, true);
+  } else if (newLdr >= ldrLowerBound && (overridePreviousLdrCheck || ldr < ldrLowerBound)) {
+    writeFlagToDigitalOutPinAndPublish(LDR_LED_PIN, false);
+  }
+
+  // reset force update state
+  overridePreviousLdrCheck = false;
+
+  // update previous value with new
+  ldr = newLdr;
+
+  // send to edge device
+  Serial.println(ldr);
+}
+
+void readAndProcessSerialInput() {
   // read serial from edge device if available
   if (Serial.available() > 0) {
 
     // Read serial input
     String input = Serial.readStringUntil('\n');
 
+    // read the prefix to determine message intent
+    // then strip the prefix and process the value
     if (input.startsWith(ldrLedFlagPrefix)) {
       input.replace(ldrLedFlagPrefix, "");
-      int ldrLedFlag = input.toInt();
+      bool ldrLedFlag = (bool)input.toInt();
+      writeFlagToDigitalOutPinAndPublish(LDR_LED_PIN, ldrLedFlag);
 
-      writeBinaryFlagToDigitalOutPin(LDR_LED_PIN, ldrLedFlag);
-    }
-
-    if (input.startsWith(temperatureFanFlagPrefix)) {
-      input.replace(temperatureFanFlagPrefix, "");
-      int temperatureFanFlag = input.toInt();
-
-      writeBinaryFlagToDigitalOutPin(TEMPERATURE_FAN_PIN, temperatureFanFlag);
-    }
-
-    if (input.startsWith(ldrUpdateFrequencySecondsPrefix)) {
+    } else if (input.startsWith(ldrUpdateFrequencySecondsPrefix)) {
       input.replace(ldrUpdateFrequencySecondsPrefix, "");
-      int newSensorReadFrequencySeconds = input.toInt();
+      sensorReadFrequencySeconds = input.toInt();
 
-      // set the new frequency
-      sensorReadFrequencySeconds = newSensorReadFrequencySeconds;
+    } else if (input.startsWith(ldrLowerBoundPrefix)) {
+      input.replace(ldrLowerBoundPrefix, "");
+      ldrLowerBound = input.toInt();
+
+      // set override flag so that the new lower bound can override a manual toggle
+      overridePreviousLdrCheck = true;
+      evaluateLdrAndPublish();
     }
   }
+}
 
-  if (readSensors) {
-    // get ldr voltage from analogue sensor
-    int ldrVoltage = analogRead(LDRPIN);
+void loop() {
+  readAndProcessSerialInput();
 
-    // send to edge device
-    Serial.println(ldrVoltage);
-
-    readSensors = false;
+  // update delay has past
+  if (readSensor) {
+    evaluateLdrAndPublish();
+    // reset flag
+    readSensor = false;
   }
 }
 
@@ -91,9 +116,10 @@ ISR(TIMER1_COMPA_vect){
     timerCount++;
     return;    
   }
+
   // reset counter now that the right delay is reached
   timerCount = 0;
 
-  // use a flag to read sensor in the main loop instead
-  readSensors = true;
+  // use a flag to publish sensor data in main loop instead
+  readSensor = true;
 }
