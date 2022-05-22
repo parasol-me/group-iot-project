@@ -20,11 +20,11 @@ class AttributeState:
 
 class TempPayload:
   def __init__(self, temp):
-    self.temp = temp #change self.temp = temp to self.temp = 23(value) to test
+    self.temp = temp
 
 class TempThreshold:
   def __init__(self, temp):
-    self.temp = temp #change self.temp = temp to self.temp = 23(value) to test
+    self.temp = temp
 
 fanTogglePrefix = 'fanToggleFlag'
 fanToggleKey = 'fanToggle'
@@ -39,8 +39,8 @@ sharedAttributesKey = 'shared'
 
 def on_connect(client, userdata, flags, rc):
   print("Connected to to mqtt broker with result code " + str(rc))
-  client.subscribe("v1/devices/me/attributes") #subscribes to 
-  client.subscribe("v1/devices/me/rpc/request/+") #subscribes to the
+  client.subscribe("v1/devices/me/attributes")
+  client.subscribe("v1/devices/me/rpc/request/+")
   client.subscribe("v1/devices/me/attributes/response/+") #
   client.publish("v1/devices/me/attributes/request/1", '{{"{}": "{}"}}'.format(sharedKeysKey, ThresholdKey))   
   client.publish("v1/devices/me/telemetry", jsonpickle.encode(tempThreshold, unpicklable=False))
@@ -49,33 +49,26 @@ def on_disconnect(client, userdata, rc):
     print("Disconnected from to mqtt broker reason " + str(rc))
 
 def on_message(client, userdata, msg):
-    
-    print ('Topic: ' + msg.topic + '\nMessage: ' + str(msg.payload))
     global thresholdValue
     global fan_state
     data = json.loads(msg.payload)
     if(msg.topic == 'v1/devices/me/attributes/response/1'):
         thresholdValue = float(data["shared"]["Threshold"])
-        
-        
-        
+    
     if(msg.topic == 'v1/devices/me/attributes'):
         if (ThresholdKey in data):
             thresholdValue = float(data["Threshold"])
+    
     if(msg.topic.startswith("v1/devices/me/rpc/request/")):
         if(data["method"]=="getValue"):
-            print(data)
             requestId = msg.topic.replace("v1/devices/me/rpc/request/", "")
             responseTopic = "v1/devices/me/rpc/response/" + requestId
             data["params"] = fan_state
-            print(data)
             var1 = jsonpickle.encode(fan_state, unpicklable=False)
-            print (var1)
             client.publish(responseTopic, var1)
             
         if(data["method"]=="setValue"):
             fanToggle = (data["params"])
-            print(data)
             fan_state = fanToggle
             if (fanToggle == True):
                 print("Fan override has been switched on")
